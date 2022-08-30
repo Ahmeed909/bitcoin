@@ -5,9 +5,12 @@
 
 #include <rpc/blockchain.h>
 
+#include <kernel/mempool_persist.h>
+
 #include <chainparams.h>
 #include <core_io.h>
 #include <fs.h>
+#include <node/mempool_persist_args.h>
 #include <policy/rbf.h>
 #include <policy/settings.h>
 #include <primitives/transaction.h>
@@ -17,8 +20,12 @@
 #include <txmempool.h>
 #include <univalue.h>
 #include <util/moneystr.h>
+#include <util/time.h>
+
+using kernel::DumpMempool;
 
 using node::DEFAULT_MAX_RAW_TX_FEE_RATE;
+using node::MempoolPath;
 using node::NodeContext;
 
 static RPCHelpMan sendrawtransaction()
@@ -248,7 +255,7 @@ static std::vector<RPCResult> MempoolEntryDescription()
             {RPCResult{RPCResult::Type::STR_HEX, "transactionid", "parent transaction id"}}},
         RPCResult{RPCResult::Type::ARR, "spentby", "unconfirmed transactions spending outputs from this transaction",
             {RPCResult{RPCResult::Type::STR_HEX, "transactionid", "child transaction id"}}},
-        RPCResult{RPCResult::Type::BOOL, "bip125-replaceable", "Whether this transaction could be replaced due to BIP125 (replace-by-fee)"},
+        RPCResult{RPCResult::Type::BOOL, "bip125-replaceable", "Whether this transaction signals BIP125 replaceability or has an unconfirmed ancestor signaling BIP125 replaceability.\n"},
         RPCResult{RPCResult::Type::BOOL, "unbroadcast", "Whether this transaction is currently unbroadcast (initial broadcast not yet acknowledged by any peers)"},
     };
 }
@@ -653,16 +660,17 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
     // Make sure this call is atomic in the pool.
     LOCK(pool.cs);
     UniValue ret(UniValue::VOBJ);
-    ret.pushKV("loaded", pool.IsLoaded());
+    ret.pushKV("loaded", pool.GetLoadTried());
     ret.pushKV("size", (int64_t)pool.size());
     ret.pushKV("bytes", (int64_t)pool.GetTotalTxSize());
     ret.pushKV("usage", (int64_t)pool.DynamicMemoryUsage());
     ret.pushKV("total_fee", ValueFromAmount(pool.GetTotalFee()));
     ret.pushKV("maxmempool", pool.m_max_size_bytes);
-    ret.pushKV("mempoolminfee", ValueFromAmount(std::max(pool.GetMinFee(), ::minRelayTxFee).GetFeePerK()));
-    ret.pushKV("minrelaytxfee", ValueFromAmount(::minRelayTxFee.GetFeePerK()));
-    ret.pushKV("incrementalrelayfee", ValueFromAmount(::incrementalRelayFee.GetFeePerK()));
+    ret.pushKV("mempoolminfee", ValueFromAmount(std::max(pool.GetMinFee(), pool.m_min_relay_feerate).GetFeePerK()));
+    ret.pushKV("minrelaytxfee", ValueFromAmount(pool.m_min_relay_feerate.GetFeePerK()));
+    ret.pushKV("incrementalrelayfee", ValueFromAmount(pool.m_incremental_relay_feerate.GetFeePerK()));
     ret.pushKV("unbroadcastcount", uint64_t{pool.GetUnbroadcastTxs().size()});
+    ret.pushKV("fullrbf", pool.m_full_rbf);
     return ret;
 }
 
@@ -682,8 +690,9 @@ static RPCHelpMan getmempoolinfo()
                 {RPCResult::Type::NUM, "maxmempool", "Maximum memory usage for the mempool"},
                 {RPCResult::Type::STR_AMOUNT, "mempoolminfee", "Minimum fee rate in " + CURRENCY_UNIT + "/kvB for tx to be accepted. Is the maximum of minrelaytxfee and minimum mempool fee"},
                 {RPCResult::Type::STR_AMOUNT, "minrelaytxfee", "Current minimum relay fee for transactions"},
-                {RPCResult::Type::NUM, "incrementalrelayfee", "minimum fee rate increment for mempool limiting or BIP 125 replacement in " + CURRENCY_UNIT + "/kvB"},
+                {RPCResult::Type::NUM, "incrementalrelayfee", "minimum fee rate increment for mempool limiting or replacement in " + CURRENCY_UNIT + "/kvB"},
                 {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},
+                {RPCResult::Type::BOOL, "fullrbf", "True if the mempool accepts RBF without replaceability signaling inspection"},
             }},
         RPCExamples{
             HelpExampleCli("getmempoolinfo", "")
@@ -715,16 +724,18 @@ static RPCHelpMan savemempool()
     const ArgsManager& args{EnsureAnyArgsman(request.context)};
     const CTxMemPool& mempool = EnsureAnyMemPool(request.context);
 
-    if (!mempool.IsLoaded()) {
+    if (!mempool.GetLoadTried()) {
         throw JSONRPCError(RPC_MISC_ERROR, "The mempool was not loaded yet");
     }
 
-    if (!DumpMempool(mempool)) {
+    const fs::path& dump_path = MempoolPath(args);
+
+    if (!DumpMempool(mempool, dump_path)) {
         throw JSONRPCError(RPC_MISC_ERROR, "Unable to dump mempool to disk");
     }
 
     UniValue ret(UniValue::VOBJ);
-    ret.pushKV("filename", fs::path((args.GetDataDirNet() / "mempool.dat")).u8string());
+    ret.pushKV("filename", dump_path.u8string());
 
     return ret;
 },

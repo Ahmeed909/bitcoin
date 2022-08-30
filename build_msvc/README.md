@@ -3,7 +3,9 @@ Building Bitcoin Core with Visual Studio
 
 Introduction
 ---------------------
-Solution and project files to build Bitcoin Core with `msbuild` or Visual Studio can be found in the `build_msvc` directory. The build has been tested with Visual Studio 2022 and Visual Studio 2019 (building with earlier versions of Visual Studio should not be expected to work).
+Visual Studio 2022 is minimum required to build Bitcoin Core.
+
+Solution and project files to build with `msbuild` or Visual Studio can be found in the `build_msvc` directory.
 
 To build Bitcoin Core from the command-line, it is sufficient to only install the Visual Studio Build Tools component.
 
@@ -28,7 +30,7 @@ Qt
 ---------------------
 To build Bitcoin Core with the GUI, a static build of Qt is required.
 
-1. Download a single ZIP archive of Qt source code from https://download.qt.io/official_releases/qt/ (e.g., [`qt-everywhere-opensource-src-5.15.3.zip`](https://download.qt.io/official_releases/qt/5.15/5.15.3/single/qt-everywhere-opensource-src-5.15.3.zip)), and expand it into a dedicated folder. The following instructions assume that this folder is `C:\dev\qt-source`.
+1. Download a single ZIP archive of Qt source code from https://download.qt.io/official_releases/qt/ (e.g., [`qt-everywhere-opensource-src-5.15.5.zip`](https://download.qt.io/official_releases/qt/5.15/5.15.5/single/qt-everywhere-opensource-src-5.15.5.zip)), and expand it into a dedicated folder. The following instructions assume that this folder is `C:\dev\qt-source`.
 
 2. Open "x64 Native Tools Command Prompt for VS 2022", and input the following commands:
 ```cmd

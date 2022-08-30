@@ -12,6 +12,7 @@ import inspect
 import json
 import logging
 import os
+import random
 import re
 import time
 import unittest
@@ -28,6 +29,10 @@ logger = logging.getLogger("TestFramework.utils")
 
 def assert_approx(v, vexp, vspan=0.00001):
     """Assert that `v` is within `vspan` of `vexp`"""
+    if isinstance(v, Decimal) or isinstance(vexp, Decimal):
+        v=Decimal(v)
+        vexp=Decimal(vexp)
+        vspan=Decimal(vspan)
     if v < vexp - vspan:
         raise AssertionError("%s < [%s..%s]" % (str(v), str(vexp - vspan), str(vexp + vspan)))
     if v > vexp + vspan:
@@ -286,6 +291,13 @@ def sha256sum_file(filename):
             d = f.read(4096)
     return h.digest()
 
+
+# TODO: Remove and use random.randbytes(n) instead, available in Python 3.9
+def random_bytes(n):
+    """Return a random bytes object of length n."""
+    return bytes(random.getrandbits(8) for i in range(n))
+
+
 # RPC/P2P connection constants and functions
 ############################################
 
@@ -512,16 +524,13 @@ def gen_return_txouts():
 # Create a spend of each passed-in utxo, splicing in "txouts" to each raw
 # transaction to make it large.  See gen_return_txouts() above.
 def create_lots_of_big_transactions(mini_wallet, node, fee, tx_batch_size, txouts, utxos=None):
-    from .messages import COIN
-    fee_sats = int(fee * COIN)
     txids = []
     use_internal_utxos = utxos is None
     for _ in range(tx_batch_size):
         tx = mini_wallet.create_self_transfer(
             utxo_to_spend=None if use_internal_utxos else utxos.pop(),
-            fee_rate=0,
+            fee=fee,
         )["tx"]
-        tx.vout[0].nValue -= fee_sats
         tx.vout.extend(txouts)
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(res['fees']['base'], fee)
